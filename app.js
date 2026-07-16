@@ -326,7 +326,7 @@
         ...navigationItems.map(({ type, item }) => ({ type, item, score: score(`${item.name} ${item.comment || ""}`) })),
         ...data.reaches.map((item) => ({ type: "reach", item, score: score(item.name) })),
         ...branches.map((item) => ({ type: "branch", item, score: score(`${item.name} ${item.comment}`) })),
-        ...data.pages.map((item) => ({ type: "page", item, score: score(`${item.name} ${item.comment}`) })),
+        ...data.pages.map((item) => ({ type: "page", item, score: score(`${item.name} ${item.comment} ${(item.summary || []).join(" ")}`) })),
       ]
         .filter((result) => result.score < 9999)
         .sort((a, b) => a.score - b.score || a.item.name.localeCompare(b.item.name))
@@ -428,6 +428,7 @@
 
   function openDetail(htmlContent) {
     elements.detailContent.innerHTML = htmlContent;
+    elements.detail.scrollTop = 0;
     elements.detail.classList.add("is-open");
     elements.detail.setAttribute("aria-hidden", "false");
   }
@@ -446,6 +447,29 @@
           </button>`).join("")}
       </div>
       ${remainder > 0 ? `<p class="more-note">另有 ${remainder} 个条目，可在搜索中找到。</p>` : ""}`;
+  }
+
+  function relatedPageIds(item) {
+    return [...new Set([...(item.pageIds || []), ...(item.pageId ? [item.pageId] : [])])];
+  }
+
+  function bookSourceHTML(page) {
+    if (!page.source) return "";
+    const pageLabel = String(page.source.pages || "").includes("-") || String(page.source.pages || "").includes(",") ? "pp." : "p.";
+    return `
+      <div class="book-source">
+        <span>BOOK SOURCE</span>
+        <p><strong>${escapeHTML(page.source.author)} · <em>${escapeHTML(page.source.title)}</em></strong><small>${escapeHTML(page.source.year)} · 书内 ${pageLabel} ${escapeHTML(page.source.pages)}</small></p>
+      </div>`;
+  }
+
+  function bookSummaryHTML(page) {
+    if (!Array.isArray(page.summary) || !page.summary.length) return "";
+    return `
+      <section class="book-summary" aria-label="中文梗概">
+        <p class="detail-section-title">中文梗概</p>
+        ${page.summary.map((paragraph) => `<p>${escapeHTML(paragraph)}</p>`).join("")}
+      </section>`;
   }
 
   function navigationListHTML(reach, limit = 10) {
@@ -577,6 +601,7 @@
     renderCatalog();
     if (moveMap) map.flyTo([waypoint.lat, waypoint.lng], Math.max(map.getZoom(), 14), { duration: 0.7 });
     const reach = reachForRouteIndex(waypoint.routeIndex);
+    const pageIds = relatedPageIds(waypoint);
     openDetail(`
       <p class="detail-type">${escapeHTML(kindLabel(waypoint.kind).toUpperCase())} · 航路点</p>
       <h2>${escapeHTML(waypoint.name)}</h2>
@@ -585,7 +610,7 @@
         ${saveActionHTML("waypoint", waypoint.id)}
         ${reach ? `<button type="button" data-reach-id="${escapeHTML(reach.id)}">查看所在河段</button>` : ""}
       </div>
-      ${waypoint.pageId ? `<div class="detail-rule"></div><p class="detail-section-title">相关掌故</p>${pageListHTML([waypoint.pageId], 4)}` : ""}
+      ${pageIds.length ? `<div class="detail-rule"></div><p class="detail-section-title">相关掌故 · ${pageIds.length}</p>${pageListHTML(pageIds, 12)}` : ""}
     `);
     elements.catalog.classList.remove("is-open");
   }
@@ -601,6 +626,7 @@
     updateMapSelection();
     renderCatalog();
     if (moveMap) map.flyTo([waypoint.lat, waypoint.lng], Math.max(map.getZoom(), 14), { duration: 0.7 });
+    const pageIds = relatedPageIds(waypoint);
     openDetail(`
       <p class="detail-type">${escapeHTML(kindLabel(waypoint.kind).toUpperCase())} · CHERWELL 航路点</p>
       <h2>${escapeHTML(waypoint.name)}</h2>
@@ -609,7 +635,7 @@
         ${saveActionHTML("branchWaypoint", waypoint.id)}
         ${relatedBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(item.name.replace(/^Cherwell \d · /, ""))}</button>`).join("")}
       </div>
-      ${waypoint.pageId ? `<div class="detail-rule"></div><p class="detail-section-title">相关掌故</p>${pageListHTML([waypoint.pageId], 4)}` : ""}
+      ${pageIds.length ? `<div class="detail-rule"></div><p class="detail-section-title">相关掌故 · ${pageIds.length}</p>${pageListHTML(pageIds, 12)}` : ""}
     `);
     elements.catalog.classList.remove("is-open");
   }
@@ -640,16 +666,18 @@
       <p class="detail-lede">${escapeHTML(page.comment || "Where Thames Smooth Waters Glide")}</p>
       ${reach ? `<p class="more-note">所在河段：${escapeHTML(reach.name)}</p>` : ""}
       ${pageBranches.length ? `<p class="more-note">相关 Cherwell 分段：${pageBranches.map((item) => escapeHTML(item.name)).join(" · ")}</p>` : ""}
+      ${bookSourceHTML(page)}
+      ${bookSummaryHTML(page)}
       <div class="detail-rule"></div>
       <p class="detail-section-title">随船阅读</p>
       <div class="article-actions">
         ${saveActionHTML("page", page.id)}
         ${snapshot ? `<button type="button" data-open-snapshot="${escapeHTML(page.id)}">阅读离线正文</button>` : ""}
-        <a href="${escapeHTML(page.originalUrl)}" target="_blank" rel="noreferrer">打开作者原文 ↗</a>
+        ${page.originalUrl ? `<a href="${escapeHTML(page.originalUrl)}" target="_blank" rel="noreferrer">打开作者原文 ↗</a>` : ""}
         ${reach ? `<button type="button" data-reach-id="${escapeHTML(reach.id)}">查看所在河段</button>` : ""}
         ${pageBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(item.name.replace(/^Cherwell \d · /, ""))}</button>`).join("")}
       </div>
-      <p class="rights-message">随身夹保存这张地点卡片；路线与说明离线可看，原文需要网络。</p>
+      <p class="rights-message">${page.bookSummary ? "本卡为书中相关段落的中文梗概，专名保留英文；内容与地图位置均可离线查看。" : "随身夹保存这张地点卡片；路线与说明离线可看，原文需要网络。"}</p>
     `);
     elements.catalog.classList.remove("is-open");
   }
