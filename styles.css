@@ -12,6 +12,8 @@
   --line: rgba(23, 49, 54, 0.14);
   --shadow: 0 18px 48px rgba(23, 49, 54, 0.18);
   --topbar-height: 72px;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --topbar-total-height: calc(var(--topbar-height) + var(--safe-area-top));
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -47,12 +49,12 @@ button { color: inherit; }
 .topbar {
   position: relative;
   z-index: 1000;
-  height: var(--topbar-height);
+  height: var(--topbar-total-height);
   display: grid;
   grid-template-columns: minmax(220px, 280px) minmax(260px, 560px) minmax(320px, 1fr);
   align-items: center;
   gap: 24px;
-  padding: 0 22px;
+  padding: var(--safe-area-top) 22px 0;
   border-bottom: 1px solid var(--line);
   background: rgba(243, 239, 228, 0.94);
   backdrop-filter: blur(18px);
@@ -135,7 +137,7 @@ button { color: inherit; }
   position: relative;
   display: grid;
   grid-template-columns: 330px minmax(0, 1fr);
-  height: calc(100% - var(--topbar-height));
+  height: calc(100% - var(--topbar-total-height));
 }
 
 .catalog-panel {
@@ -292,7 +294,7 @@ button { color: inherit; }
 
 @media (max-width: 900px) {
   :root { --topbar-height: 64px; }
-  .topbar { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 12px; padding: 0 12px; }
+  .topbar { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 12px; padding: var(--safe-area-top) 12px 0; }
   .brand small, .brand strong { display: none; }
   .brand-mark { width: 36px; height: 36px; }
   .search kbd, .map-toggle, .top-actions .icon-button { display: none; }
