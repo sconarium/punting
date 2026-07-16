@@ -1,4 +1,4 @@
-const CACHE_NAME = "thames-punting-v11";
+const CACHE_NAME = "thames-punting-v12";
 const CORE_FILES = [
   "./",
   "./index.html",

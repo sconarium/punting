@@ -26,6 +26,7 @@
   ];
   const state = { view: "reaches", query: "", selectedType: null, selectedId: null };
   const SAVED_KEY = "thames-punting-saved-v1";
+  const BASEMAP_KEY = "thames-punting-basemap-v1";
   let savedItems = readSavedItems();
 
   const elements = {
@@ -70,8 +71,11 @@
 
   const latLngs = data.route.map(([lng, lat]) => [lat, lng]);
   const routeBounds = L.latLngBounds(latLngs);
+  const oxfordBounds = L.latLngBounds([]);
   branches.forEach((branch) => branchSegmentDescriptors(branch).forEach(({ segment }) => {
-    routeBounds.extend(L.latLngBounds(segment.map(([lng, lat]) => [lat, lng])));
+    const segmentBounds = L.latLngBounds(segment.map(([lng, lat]) => [lat, lng]));
+    routeBounds.extend(segmentBounds);
+    oxfordBounds.extend(segmentBounds);
   }));
   const routeDistances = buildRouteDistances(data.route);
   const branchRouteDistances = new Map(branches.map((branch) => [branch.id, buildRouteDistances(branch.route)]));
@@ -191,7 +195,7 @@
     waypointLayers.set(waypoint.id, marker);
   });
 
-  map.fitBounds(routeBounds, { padding: [38, 38] });
+  map.fitBounds(oxfordBounds.isValid() ? oxfordBounds : routeBounds, { padding: [38, 38], maxZoom: 11 });
   map.on("zoomend", updateWaypointVisibility);
   map.on("click", () => elements.catalog.classList.remove("is-open"));
   updateWaypointVisibility();
@@ -918,25 +922,79 @@
   elements.reader.addEventListener("close", () => { elements.readerFrame.src = "about:blank"; });
 
   let tileLayer = null;
-  elements.basemapButton.addEventListener("click", () => {
-    const next = elements.basemapButton.getAttribute("aria-pressed") !== "true";
-    elements.basemapButton.setAttribute("aria-pressed", String(next));
-    if (next) {
-      tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-      }).addTo(map);
-      tileLayer.bringToBack();
-      elements.offlineState.textContent = navigator.onLine ? "在线底图已开启" : "网络不可用；保留离线路线";
-    } else if (tileLayer) {
-      map.removeLayer(tileLayer);
+
+  function readBasemapPreference() {
+    try {
+      const stored = localStorage.getItem(BASEMAP_KEY);
+      return stored === null ? true : stored === "true";
+    } catch {
+      return true;
+    }
+  }
+
+  function saveBasemapPreference(enabled) {
+    try {
+      localStorage.setItem(BASEMAP_KEY, String(enabled));
+    } catch {
+      // Keep the current session usable when storage is unavailable.
+    }
+  }
+
+  function addReferenceBasemap() {
+    if (tileLayer || !navigator.onLine) return;
+    tileLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      opacity: 0.48,
+      className: "reference-basemap",
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    tileLayer.bringToBack();
+  }
+
+  function setReferenceBasemap(enabled, persist = false) {
+    elements.basemapButton.setAttribute("aria-pressed", String(enabled));
+    const label = enabled ? "隐藏浅色参考地图" : "显示浅色参考地图";
+    elements.basemapButton.setAttribute("aria-label", label);
+    elements.basemapButton.title = label;
+    if (persist) saveBasemapPreference(enabled);
+
+    if (enabled && navigator.onLine) {
+      addReferenceBasemap();
+      elements.basemapButton.dataset.status = "available";
+      elements.offlineState.textContent = "浅色参考地图已开启";
+    } else if (enabled) {
+      elements.basemapButton.dataset.status = "unavailable";
+      elements.offlineState.textContent = "离线路线可用 · 联网显示参考地图";
+    } else {
+      if (tileLayer) map.removeLayer(tileLayer);
       tileLayer = null;
+      elements.basemapButton.dataset.status = "disabled";
       elements.offlineState.textContent = "离线路线可用";
     }
+  }
+
+  elements.basemapButton.addEventListener("click", () => {
+    setReferenceBasemap(elements.basemapButton.getAttribute("aria-pressed") !== "true", true);
   });
+  window.addEventListener("online", () => {
+    if (elements.basemapButton.getAttribute("aria-pressed") === "true") setReferenceBasemap(true);
+  });
+  window.addEventListener("offline", () => {
+    if (elements.basemapButton.getAttribute("aria-pressed") === "true") setReferenceBasemap(true);
+  });
+  setReferenceBasemap(readBasemapPreference());
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-    navigator.serviceWorker.register("sw.js").catch(() => {});
+    let reloadingForUpdate = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloadingForUpdate) return;
+      reloadingForUpdate = true;
+      location.reload();
+    });
+    navigator.serviceWorker
+      .register("sw.js", { updateViaCache: "none" })
+      .then((registration) => registration.update())
+      .catch(() => {});
   }
 
   renderCatalog();
