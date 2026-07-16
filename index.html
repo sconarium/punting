@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#123f46">
+  <meta name="description" content="A pocket Thames route and local-history companion for punting.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="口袋河图">
+  <title>Thames Punting · 口袋河图</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="stylesheet" href="vendor/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="返回泰晤士河全图">
+        <span class="brand-mark" aria-hidden="true">≈</span>
+        <span>
+          <strong>THAMES PUNTING</strong>
+          <small>口袋河图 · 路线与沿岸掌故</small>
+        </span>
+      </a>
+
+      <form class="search" id="search-form" role="search">
+        <label class="sr-only" for="search-input">搜索船闸、河段或文章</label>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m21 21-4.3-4.3m2.3-5.2a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+        <input id="search-input" type="search" autocomplete="off" placeholder="搜索船闸、桥、河段、文章…">
+        <kbd>⌘ K</kbd>
+      </form>
+
+      <div class="top-actions">
+        <button class="icon-button" id="fit-button" type="button" aria-label="显示完整河段" title="显示完整河段">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M8 21H3v-5m13 5h5v-5"/></svg>
+        </button>
+        <button class="map-toggle location-button" id="location-button" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg>
+          <span>定位我</span>
+        </button>
+        <button class="map-toggle saved-button" id="saved-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4V3Z"/></svg>
+          <span>随身夹</span><b id="saved-count">0</b>
+        </button>
+        <button class="map-toggle" id="basemap-button" type="button" aria-pressed="false">
+          <span class="status-dot" aria-hidden="true"></span>
+          在线街道底图
+        </button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="catalog-panel" aria-label="地图目录">
+        <div class="catalog-heading">
+          <p class="eyebrow">THAMES · ISIS · CHERWELL</p>
+          <h1>随船而读</h1>
+          <p>看当前位置、前后航路点；经过一处地方，顺手翻开它的掌故。</p>
+        </div>
+
+        <nav class="view-tabs" aria-label="目录类型">
+          <button type="button" data-view="reaches" aria-pressed="true">河段 <span id="reach-count"></span></button>
+          <button type="button" data-view="waypoints" aria-pressed="false">航路 <span id="waypoint-count"></span></button>
+          <button type="button" data-view="pages" aria-pressed="false">掌故 <span id="page-count"></span></button>
+        </nav>
+
+        <div class="catalog-list" id="catalog-list" aria-live="polite"></div>
+
+        <div class="source-note">
+          <span aria-hidden="true">◎</span>
+          <p>随身夹只保存轻量目录卡片；需要深入阅读时再打开 John Eade 的原文。</p>
+        </div>
+      </aside>
+
+      <section class="map-stage" aria-label="泰晤士河交互地图">
+        <div id="map"></div>
+        <section class="position-hud" id="position-hud" aria-live="polite" hidden>
+          <span class="position-pulse" aria-hidden="true"></span>
+          <div class="position-copy">
+            <small id="position-kicker">正在寻找河道位置…</small>
+            <strong id="position-reach">定位中</strong>
+            <p id="position-distances"></p>
+          </div>
+          <button id="position-open" type="button">附近掌故</button>
+        </section>
+        <div class="map-caption">
+          <span class="caption-thames"><i class="legend-line"></i> Thames 河段</span>
+          <span class="caption-cherwell"><i class="legend-branch"></i> Cherwell 主路线</span>
+          <span class="caption-advisory"><i class="legend-advisory"></i> 不建议支汊</span>
+          <span class="caption-portage"><i class="legend-portage"></i> 上岸搬船</span>
+          <span class="caption-lock"><i class="legend-lock"></i> 船闸</span>
+          <span class="caption-waypoint"><i class="legend-waypoint"></i> 航路点</span>
+          <span class="offline-state" id="offline-state">离线路线可用</span>
+        </div>
+        <button class="mobile-catalog-button" id="mobile-catalog-button" type="button">浏览目录</button>
+      </section>
+
+      <aside class="detail-panel" id="detail-panel" aria-label="所选地点详情" aria-hidden="true">
+        <button class="detail-close" id="detail-close" type="button" aria-label="关闭详情">×</button>
+        <div id="detail-content"></div>
+      </aside>
+    </main>
+  </div>
+
+  <dialog class="reader" id="reader-dialog">
+    <div class="reader-bar">
+      <strong id="reader-title">离线正文</strong>
+      <button id="reader-close" type="button">关闭</button>
+    </div>
+    <iframe id="reader-frame" title="离线文章内容"></iframe>
+  </dialog>
+
+  <script src="vendor/leaflet.js"></script>
+  <script src="data/catalog.js"></script>
+  <script src="data/cherwell.js"></script>
+  <script src="content/manifest.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
