@@ -415,6 +415,8 @@
   ];
 
   const branchIds = new Set(branches.map((branch) => branch.id));
+  branches.forEach((branch) => { branch.region = "oxford"; });
+  branchWaypoints.forEach((waypoint) => { waypoint.region = "oxford"; });
   data.branches = [...(data.branches || []).filter((branch) => !branchIds.has(branch.id)), ...branches];
   const waypointIds = new Set(branchWaypoints.map((waypoint) => waypoint.id));
   data.branchWaypoints = [...(data.branchWaypoints || []).filter((waypoint) => !waypointIds.has(waypoint.id)), ...branchWaypoints];

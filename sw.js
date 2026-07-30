@@ -1,4 +1,4 @@
-const CACHE_NAME = "thames-punting-v13";
+const CACHE_NAME = "thames-punting-v14";
 const CORE_FILES = [
   "./",
   "./index.html",
@@ -7,6 +7,8 @@ const CORE_FILES = [
   "./data/catalog.js",
   "./data/cherwell.js",
   "./data/oxford_history.js",
+  "./data/cambridge.js",
+  "./data/cambridge_history.js",
   "./content/manifest.js",
   "./vendor/leaflet.css",
   "./vendor/leaflet.js",

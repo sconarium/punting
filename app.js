@@ -24,7 +24,7 @@
     }),
     ...branchWaypoints.map((item) => ({ type: "branchWaypoint", item })),
   ];
-  const state = { view: "reaches", query: "", selectedType: null, selectedId: null };
+  const state = { view: "reaches", query: "", region: "oxford", selectedType: null, selectedId: null };
   const SAVED_KEY = "thames-punting-saved-v1";
   const BASEMAP_KEY = "thames-punting-basemap-v1";
   let savedItems = readSavedItems();
@@ -52,11 +52,13 @@
     readerTitle: document.getElementById("reader-title"),
     readerFrame: document.getElementById("reader-frame"),
     readerClose: document.getElementById("reader-close"),
+    regionButtons: Array.from(document.querySelectorAll("[data-region]")),
   };
 
   document.getElementById("reach-count").textContent = data.reaches.length + branches.length;
   document.getElementById("waypoint-count").textContent = data.waypoints.length + branchWaypoints.length;
   document.getElementById("page-count").textContent = data.pages.length;
+  document.getElementById("book-story-count").textContent = data.meta.bookStoryCount || data.pages.filter((page) => page.bookSummary).length;
   updateSavedCount();
 
   const map = L.map("map", {
@@ -71,11 +73,16 @@
 
   const latLngs = data.route.map(([lng, lat]) => [lat, lng]);
   const routeBounds = L.latLngBounds(latLngs);
-  const oxfordBounds = L.latLngBounds([]);
+  const regionBounds = new Map([
+    ["thames", L.latLngBounds(latLngs)],
+    ["oxford", L.latLngBounds([])],
+    ["cambridge", L.latLngBounds([])],
+  ]);
   branches.forEach((branch) => branchSegmentDescriptors(branch).forEach(({ segment }) => {
     const segmentBounds = L.latLngBounds(segment.map(([lng, lat]) => [lat, lng]));
     routeBounds.extend(segmentBounds);
-    oxfordBounds.extend(segmentBounds);
+    if (!regionBounds.has(branchRegion(branch))) regionBounds.set(branchRegion(branch), L.latLngBounds([]));
+    regionBounds.get(branchRegion(branch)).extend(segmentBounds);
   }));
   const routeDistances = buildRouteDistances(data.route);
   const branchRouteDistances = new Map(branches.map((branch) => [branch.id, buildRouteDistances(branch.route)]));
@@ -119,12 +126,12 @@
     branchSegmentDescriptors(branch).forEach(({ segment, kind }) => {
       const coordinates = segment.map(([lng, lat]) => [lat, lng]);
       const visibleLine = L.polyline(coordinates, {
-        ...branchSegmentStyle(kind, false),
+        ...branchSegmentStyle(branch, kind, false),
         lineCap: "round",
         interactive: false,
       }).addTo(map);
       const hitLine = L.polyline(coordinates, {
-        color: "#65733f",
+        color: branchColor(branch),
         weight: 22,
         opacity: 0,
         lineCap: "round",
@@ -179,11 +186,12 @@
   });
   branchWaypoints.forEach((waypoint) => {
     const isCaution = ["warning", "weir", "portage"].includes(waypoint.kind);
+    const waypointBranch = branchById.get(waypoint.branchId);
     const marker = L.circleMarker([waypoint.lat, waypoint.lng], {
       radius: isCaution ? 5 : 4,
       color: "#f3efe4",
       weight: isCaution ? 2 : 1,
-      fillColor: isCaution ? "#c76b45" : "#65733f",
+      fillColor: isCaution ? "#c76b45" : branchColor(waypointBranch),
       fillOpacity: 1,
     });
     marker.bindTooltip(waypoint.name, { direction: "top", offset: [0, -4], className: "lock-tooltip" });
@@ -195,7 +203,8 @@
     waypointLayers.set(waypoint.id, marker);
   });
 
-  map.fitBounds(oxfordBounds.isValid() ? oxfordBounds : routeBounds, { padding: [38, 38], maxZoom: 11 });
+  const initialBounds = regionBounds.get("oxford");
+  map.fitBounds(initialBounds && initialBounds.isValid() ? initialBounds : routeBounds, { padding: [38, 38], maxZoom: 11 });
   map.on("zoomend", updateWaypointVisibility);
   map.on("click", () => elements.catalog.classList.remove("is-open"));
   updateWaypointVisibility();
@@ -236,6 +245,27 @@
     }[kind] || "航路点";
   }
 
+  function branchRegion(branch) {
+    if (branch && branch.region) return branch.region;
+    return branch && String(branch.id).startsWith("cambridge-") ? "cambridge" : "oxford";
+  }
+
+  function regionLabel(region) {
+    return {
+      thames: "Thames",
+      oxford: "Oxford",
+      cambridge: "Cambridge",
+    }[region] || "Punting";
+  }
+
+  function branchColor(branch) {
+    return branchRegion(branch) === "cambridge" ? "#685b86" : "#65733f";
+  }
+
+  function shortBranchName(branch) {
+    return String(branch && branch.name || "").replace(/^(?:Cherwell|Cambridge) \d+ · /, "");
+  }
+
   function branchSegmentDescriptors(branch) {
     return [
       ...(branch.segments || []).map((segment) => ({ segment, kind: "route" })),
@@ -245,10 +275,11 @@
     ];
   }
 
-  function branchSegmentStyle(kind, selected) {
+  function branchSegmentStyle(branch, kind, selected) {
+    const baseColor = branchColor(branch);
     const styles = {
-      route: { color: "#65733f", weight: 5, opacity: 0.94 },
-      alternative: { color: "#7d8c56", weight: 4, opacity: 0.86, dashArray: "8 6" },
+      route: { color: baseColor, weight: 5, opacity: 0.94 },
+      alternative: { color: branchRegion(branch) === "cambridge" ? "#867aa1" : "#7d8c56", weight: 4, opacity: 0.86, dashArray: "8 6" },
       advisory: { color: "#a87745", weight: 4, opacity: 0.84, dashArray: "5 7" },
       portage: { color: "#c76b45", weight: 5, opacity: 1, dashArray: "2 7" },
     };
@@ -356,7 +387,7 @@
         let meta = "";
         if (type === "reach" || type === "branch") {
           subtitle = `${item.from} 至 ${item.to}`;
-          meta = type === "branch" ? `${item.difficulty || "CHERWELL"} · ${item.distanceKm.toFixed(1)} km` : `${item.pageIds.length} 则掌故`;
+          meta = type === "branch" ? `${regionLabel(branchRegion(item))} · ${item.distanceKm.toFixed(1)} km` : `${item.pageIds.length} 则掌故`;
         } else if (type === "lock") {
           subtitle = item.comment || "River Thames lock";
           meta = "船闸";
@@ -402,8 +433,9 @@
     });
     branchLayers.forEach(({ visible }, id) => {
       const selected = state.selectedType === "branch" && state.selectedId === id;
+      const branch = branchById.get(id);
       visible.forEach(({ line, kind }) => {
-        line.setStyle(branchSegmentStyle(kind, selected));
+        line.setStyle(branchSegmentStyle(branch, kind, selected));
         if (selected) line.bringToFront();
       });
     });
@@ -418,9 +450,10 @@
       const isBranchWaypoint = branchWaypointById.has(id);
       const waypoint = branchWaypointById.get(id);
       const isCaution = waypoint && ["warning", "weir", "portage"].includes(waypoint.kind);
+      const branch = waypoint && branchById.get(waypoint.branchId);
       marker.setRadius(selected ? 7 : isCaution ? 5 : isBranchWaypoint ? 4 : 3);
       marker.setStyle({
-        fillColor: selected ? "#123f46" : isCaution ? "#c76b45" : isBranchWaypoint ? "#65733f" : "#123f46",
+        fillColor: selected ? "#123f46" : isCaution ? "#c76b45" : isBranchWaypoint ? branchColor(branch) : "#123f46",
         weight: selected || isCaution ? 2 : 1,
       });
     });
@@ -517,9 +550,28 @@
     });
   }
 
+  function fitRegion(region) {
+    const bounds = regionBounds.get(region);
+    if (!bounds || !bounds.isValid()) return;
+    map.fitBounds(bounds, {
+      padding: [38, 38],
+      maxZoom: region === "thames" ? 9 : 12,
+    });
+  }
+
+  function setRegion(region, moveMap = true) {
+    if (!regionBounds.has(region)) return;
+    state.region = region;
+    elements.regionButtons.forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.region === region));
+    });
+    if (moveMap) fitRegion(region);
+  }
+
   function selectReach(id, moveMap) {
     const reach = reachById.get(id);
     if (!reach) return;
+    setRegion("thames", false);
     state.selectedType = "reach";
     state.selectedId = id;
     updateMapSelection();
@@ -543,24 +595,25 @@
   function selectBranch(id, moveMap) {
     const branch = branchById.get(id);
     if (!branch) return;
+    setRegion(branchRegion(branch), false);
     state.selectedType = "branch";
     state.selectedId = id;
     updateMapSelection();
     renderCatalog();
     if (moveMap) fitBranch(branch);
     openDetail(`
-      <p class="detail-type">OXFORD PUNTING · ${escapeHTML(branch.difficulty || "CHERWELL 分段")}</p>
+      <p class="detail-type">${escapeHTML(regionLabel(branchRegion(branch)).toUpperCase())} PUNTING · ${escapeHTML(branch.difficulty || "PUNTING 分段")}</p>
       <h2>${escapeHTML(branch.name)}</h2>
       <p class="detail-lede">${escapeHTML(branch.comment)}</p>
       <p class="route-note"><strong>现场路线：</strong>${escapeHTML(branch.note || "按地图航路点逐段核对。")}</p>
       <p class="more-note">单程约 ${branch.distanceKm.toFixed(1)} km · ${escapeHTML(branch.from)} → ${escapeHTML(branch.to)}</p>
       <div class="article-actions">${saveActionHTML("branch", branch.id)}</div>
       <div class="detail-rule"></div>
-      <p class="detail-section-title">Cherwell 航路点</p>
+      <p class="detail-section-title">${escapeHTML(regionLabel(branchRegion(branch)))} 航路点</p>
       ${branchNavigationListHTML(branch)}
       <p class="detail-section-title" style="margin-top:20px">作者整理 · ${branch.pageIds.length}</p>
       ${pageListHTML(branch.pageIds)}
-      <p class="rights-message">绿色实线为主路线；赭色虚线为作者不建议的浅支汊；橙色点线表示必须上岸搬船。地图可离线查看，行前仍须核对水位、倒树和现场通行情况。</p>
+      <p class="rights-message">实线为主路线；赭色虚线为不建议的支汊；橙色点线表示必须上岸搬船。地图可离线查看，行前仍须核对水位、倒树、赛事与现场通行情况。</p>
     `);
     elements.catalog.classList.remove("is-open");
   }
@@ -568,6 +621,7 @@
   function selectLock(id, moveMap) {
     const lock = lockById.get(id);
     if (!lock) return;
+    setRegion("thames", false);
     state.selectedType = "lock";
     state.selectedId = id;
     updateMapSelection();
@@ -595,6 +649,7 @@
   function selectWaypoint(id, moveMap) {
     const waypoint = waypointById.get(id);
     if (!waypoint) return;
+    setRegion("thames", false);
     state.selectedType = "waypoint";
     state.selectedId = id;
     updateMapSelection();
@@ -621,6 +676,8 @@
     const priorBranchId = state.selectedType === "branch" && waypointBelongsToBranch(waypoint, state.selectedId) ? state.selectedId : null;
     const relatedBranches = (waypoint.branchIds || [waypoint.branchId]).map((branchId) => branchById.get(branchId)).filter(Boolean);
     if (priorBranchId) relatedBranches.sort((a) => a.id === priorBranchId ? -1 : 1);
+    const region = waypoint.region || branchRegion(relatedBranches[0]);
+    setRegion(region, false);
     state.selectedType = "branchWaypoint";
     state.selectedId = id;
     updateMapSelection();
@@ -628,12 +685,12 @@
     if (moveMap) map.flyTo([waypoint.lat, waypoint.lng], Math.max(map.getZoom(), 14), { duration: 0.7 });
     const pageIds = relatedPageIds(waypoint);
     openDetail(`
-      <p class="detail-type">${escapeHTML(kindLabel(waypoint.kind).toUpperCase())} · CHERWELL 航路点</p>
+      <p class="detail-type">${escapeHTML(kindLabel(waypoint.kind).toUpperCase())} · ${escapeHTML(regionLabel(region).toUpperCase())} 航路点</p>
       <h2>${escapeHTML(waypoint.name)}</h2>
       <p class="detail-lede">${escapeHTML(waypoint.comment)}</p>
       <div class="article-actions">
         ${saveActionHTML("branchWaypoint", waypoint.id)}
-        ${relatedBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(item.name.replace(/^Cherwell \d · /, ""))}</button>`).join("")}
+        ${relatedBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(shortBranchName(item))}</button>`).join("")}
       </div>
       ${pageIds.length ? `<div class="detail-rule"></div><p class="detail-section-title">相关掌故 · ${pageIds.length}</p>${pageListHTML(pageIds, 12)}` : ""}
     `);
@@ -660,12 +717,14 @@
     const reach = page.reachId ? reachById.get(page.reachId) : null;
     const pageBranches = (page.branchIds || (page.branchId ? [page.branchId] : [])).map((branchId) => branchById.get(branchId)).filter(Boolean);
     const branch = pageBranches[0] || null;
+    const region = page.region || (branch ? branchRegion(branch) : reach ? "thames" : state.region);
+    setRegion(region, false);
     openDetail(`
       <p class="detail-type">${escapeHTML(kindLabel(page.kind).toUpperCase())} · 沿岸掌故</p>
       <h2>${escapeHTML(page.name)}</h2>
       <p class="detail-lede">${escapeHTML(page.comment || "Where Thames Smooth Waters Glide")}</p>
       ${reach ? `<p class="more-note">所在河段：${escapeHTML(reach.name)}</p>` : ""}
-      ${pageBranches.length ? `<p class="more-note">相关 Cherwell 分段：${pageBranches.map((item) => escapeHTML(item.name)).join(" · ")}</p>` : ""}
+      ${pageBranches.length ? `<p class="more-note">相关 punting 分段：${pageBranches.map((item) => escapeHTML(item.name)).join(" · ")}</p>` : ""}
       ${bookSourceHTML(page)}
       ${bookSummaryHTML(page)}
       <div class="detail-rule"></div>
@@ -675,7 +734,7 @@
         ${snapshot ? `<button type="button" data-open-snapshot="${escapeHTML(page.id)}">阅读离线正文</button>` : ""}
         ${page.originalUrl ? `<a href="${escapeHTML(page.originalUrl)}" target="_blank" rel="noreferrer">打开作者原文 ↗</a>` : ""}
         ${reach ? `<button type="button" data-reach-id="${escapeHTML(reach.id)}">查看所在河段</button>` : ""}
-        ${pageBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(item.name.replace(/^Cherwell \d · /, ""))}</button>`).join("")}
+        ${pageBranches.map((item) => `<button type="button" data-branch-id="${escapeHTML(item.id)}">查看 ${escapeHTML(shortBranchName(item))}</button>`).join("")}
       </div>
       <p class="rights-message">${page.bookSummary ? "本卡为书中相关段落的中文梗概，专名保留英文；内容与地图位置均可离线查看。" : "随身夹保存这张地点卡片；路线与说明离线可看，原文需要网络。"}</p>
     `);
@@ -809,6 +868,7 @@
 
     if (onBranch) {
       const branch = nearestBranch.branch;
+      setRegion(branchRegion(branch), false);
       const nearbyWaypoint = branchWaypoints
         .filter((waypoint) => waypointBelongsToBranch(waypoint, branch.id))
         .map((waypoint) => ({ waypoint, distance: haversine(lat, lng, waypoint.lat, waypoint.lng) }))
@@ -817,7 +877,7 @@
       const fromStart = distances[nearestBranch.index];
       const toEnd = distances[distances.length - 1] - fromStart;
       elements.positionKicker.textContent = nearestBranch.distance > 0.35
-        ? `距 Cherwell 路线约 ${formatDistance(nearestBranch.distance)}`
+        ? `距 ${regionLabel(branchRegion(branch))} punting 路线约 ${formatDistance(nearestBranch.distance)}`
         : `最近 ${nearbyWaypoint ? nearbyWaypoint.waypoint.name : branch.from} · 精度约 ${Math.round(accuracy)} m`;
       elements.positionReach.textContent = branch.name;
       elements.positionDistances.textContent = `距 ${branch.from} ${formatDistance(fromStart)} · 至 ${branch.to} ${formatDistance(toEnd)}`;
@@ -825,6 +885,7 @@
       return;
     }
 
+    setRegion("thames", false);
     let upstream = null;
     let downstream = null;
     data.locks.forEach((lock) => {
@@ -922,9 +983,12 @@
 
   document.querySelector(".brand").addEventListener("click", (event) => {
     event.preventDefault();
-    map.fitBounds(routeBounds, { padding: [38, 38] });
+    setRegion("thames");
   });
-  document.getElementById("fit-button").addEventListener("click", () => map.fitBounds(routeBounds, { padding: [38, 38] }));
+  document.getElementById("fit-button").addEventListener("click", () => fitRegion(state.region));
+  elements.regionButtons.forEach((button) => {
+    button.addEventListener("click", () => setRegion(button.dataset.region));
+  });
   elements.mobileCatalogButton.addEventListener("click", () => elements.catalog.classList.toggle("is-open"));
   elements.locationButton.addEventListener("click", () => locationWatchId === null ? startLocation() : stopLocation());
   elements.savedButton.addEventListener("click", () => {
